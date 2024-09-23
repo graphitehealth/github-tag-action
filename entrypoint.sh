@@ -1,14 +1,13 @@
 #!/bin/bash
 
 set -eo pipefail
-
 # config
 default_semvar_bump=${DEFAULT_BUMP:-minor}
 default_branch=${DEFAULT_BRANCH:-$GITHUB_BASE_REF} # get the default branch from github runner env vars
 with_v=${WITH_V:-false}
 release_branches=${RELEASE_BRANCHES:-master,main}
 custom_tag=${CUSTOM_TAG:-}
-source=${SOURCE:-.}
+source=${SOURCE:-}
 dryrun=${DRY_RUN:-false}
 git_api_tagging=${GIT_API_TAGGING:-true}
 initial_version=${INITIAL_VERSION:-0.0.0}
@@ -23,13 +22,29 @@ none_string_token=${NONE_STRING_TOKEN:-#none}
 branch_history=${BRANCH_HISTORY:-compare}
 force_without_changes=${FORCE_WITHOUT_CHANGES:-false}
 force_without_changes_pre=${FORCE_WITHOUT_CHANGES:-false}
+workingspace="${GITHUB_WORKSPACE}/${source}"
+owner=${GITHUB_REPOSITORY%%/*}
+repo_name=${GITHUB_REPOSITORY##*/}
+if [ -n "$source" ]; then
+    full_name="${owner}/${source}"
+else
+    full_name="${owner}/${repo_name}"
+fi
 
 # since https://github.blog/2022-04-12-git-security-vulnerability-announced/ runner uses?
-git config --global --add safe.directory /github/workspace
+#git config --global --add safe.directory /github/workspace
+git config --global --add safe.directory $workingspace
 
-cd "${GITHUB_WORKSPACE}/${source}" || exit 1
+cd $workingspace || exit 1
+
+cat "${workingspace}/.git/config"
+git remote get-url origin 
 
 echo "*** CONFIGURATION ***"
+echo -e "\tGITHUB_WORKSPACE: ${GITHUB_WORKSPACE}"
+echo -e "\tworkingspace: ${workingspace}"
+echo -e "\tOWNER: ${owner}"
+echo -e "\tREPO_NAME: ${repo_name}"
 echo -e "\tDEFAULT_BUMP: ${default_semvar_bump}"
 echo -e "\tDEFAULT_BRANCH: ${default_branch}"
 echo -e "\tWITH_V: ${with_v}"
@@ -85,6 +100,8 @@ echo "release = ${release}"
 
 # fetch tags
 git fetch --tags
+git tag --list
+git for-each-ref --sort=-v:refname --format '%(refname:lstrip=2)'
 
 tagFmt="^v?[0-9]+\.[0-9]+\.[0-9]+$"
 preTagFmt="^v?[0-9]+\.[0-9]+\.[0-9]+(-$suffix\.[0-9]+)$"
@@ -261,10 +278,9 @@ echo "EVENT: pushing tag $new to origin"
 if $git_api_tagging
 then
     # use git api to push
-    dt=$(date '+%Y-%m-%dT%H:%M:%SZ')
-    full_name=$GITHUB_REPOSITORY
-    git_refs_url=$(jq .repository.git_refs_url "$GITHUB_EVENT_PATH" | tr -d '"' | sed 's/{\/sha}//g')
-
+    dt=$(date '+%Y-%m-%dT%H:%M:%SZ')    
+    git_refs_url="https://api.github.com/repos/${full_name}/git/refs"
+                 
     echo "$dt: **pushing tag $new to repo $full_name"
 
     git_refs_response=$(
